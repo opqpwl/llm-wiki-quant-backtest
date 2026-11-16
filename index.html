@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>量化交易回測的常見陷阱與過擬合防範 — 初學者避坑指南</title>
+  <style>
+    :root {
+      --bg-color: #0b1120;
+      --card-bg: #131d33;
+      --card-border: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-cyan: #38bdf8;
+      --accent-blue: #3b82f6;
+      --accent-green: #10b981;
+      --accent-rose: #f43f5e;
+      --accent-amber: #f59e0b;
+      --accent-purple: #a855f7;
+      --badge-bg: rgba(56, 189, 248, 0.12);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      overflow-x: hidden;
+      padding: 16px;
+    }
+
+    /* Top Progress Bar */
+    .progress-bar-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      z-index: 100;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 10%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+    }
+
+    /* Slide Deck Container */
+    .deck-container {
+      width: 100%;
+      max-width: 1160px;
+      min-height: 680px;
+      background: radial-gradient(circle at 80% 20%, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.8) 100%);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Slide Item */
+    .slide {
+      display: none;
+      flex: 1;
+      padding: 44px 56px 64px 56px;
+      flex-direction: column;
+      animation: fadeIn 0.35s ease forwards;
+      position: relative;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Header */
+    .slide-header {
+      margin-bottom: 24px;
+    }
+
+    .slide-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 14px;
+      border-radius: 9999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: var(--badge-bg);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      margin-bottom: 10px;
+    }
+
+    .slide-title {
+      font-size: 2.1rem;
+      font-weight: 800;
+      color: #ffffff;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+
+    .slide-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    /* Main Content Layouts */
+    .content-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Cards */
+    .card {
+      background: rgba(19, 29, 51, 0.75);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 18px 22px;
+      backdrop-filter: blur(10px);
+    }
+
+    .analogy-card {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.02) 100%);
+      border-left: 4px solid var(--accent-amber);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    .analogy-title {
+      font-weight: 700;
+      color: var(--accent-amber);
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .analogy-text {
+      color: #e2e8f0;
+      font-size: 1.02rem;
+      line-height: 1.6;
+    }
+
+    /* Definition Box */
+    .def-box {
+      background: rgba(56, 189, 248, 0.06);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 1.12rem;
+      line-height: 1.55;
+      color: #e0f2fe;
+    }
+
+    .def-box strong {
+      color: var(--accent-cyan);
+    }
+
+    /* Comparison Table / Grid */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 4px;
+    }
+
+    .compare-card {
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+
+    .compare-card.wrong {
+      background: rgba(244, 63, 94, 0.08);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+    }
+
+    .compare-card.correct {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .compare-head {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .compare-card.wrong .compare-head {
+      color: var(--accent-rose);
+    }
+
+    .compare-card.correct .compare-head {
+      color: var(--accent-green);
+    }
+
+    .compare-card ul {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .compare-card.wrong li::before {
+      content: "❌ ";
+      font-size: 0.85rem;
+    }
+
+    .compare-card.correct li::before {
+      content: "✅ ";
+      font-size: 0.85rem;
+    }
+
+    /* Key Takeaway / Defense Pill */
+    .defense-card {
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 12px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.95rem;
+      color: #bfdbfe;
+    }
+
+    .defense-card strong {
+      color: #60a5fa;
+      white-space: nowrap;
+    }
+
+    /* 4 Grid Layout for Overview */
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .grid-item {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .grid-item:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent-cyan);
+    }
+
+    .grid-item h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .grid-item p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Checklist Layout */
+    .checklist-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .check-item {
+      background: rgba(30, 41, 59, 0.65);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 0.98rem;
+    }
+
+    .check-badge {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .check-title {
+      font-weight: 700;
+      color: #ffffff;
+      margin-right: 8px;
+    }
+
+    .check-desc {
+      color: var(--text-muted);
+    }
+
+    /* Cover Styling */
+    .cover-layout {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      padding: 40px 20px;
+      gap: 24px;
+    }
+
+    .cover-badge {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 6px 18px;
+      border-radius: 9999px;
+      display: inline-block;
+    }
+
+    .cover-title {
+      font-size: 3.2rem;
+      font-weight: 900;
+      line-height: 1.2;
+      background: linear-gradient(135deg, #ffffff 40%, var(--accent-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      max-width: 900px;
+    }
+
+    .cover-subtitle {
+      font-size: 1.35rem;
+      color: var(--text-muted);
+      max-width: 750px;
+      line-height: 1.6;
+    }
+
+    .cover-pain-card {
+      margin-top: 10px;
+      background: rgba(244, 63, 94, 0.08);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+      border-radius: 16px;
+      padding: 16px 32px;
+      color: #fda4af;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+
+    /* Bottom Source Badge (Mandatory requirement) */
+    .wiki-source-tag {
+      position: absolute;
+      bottom: 20px;
+      right: 28px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #94a3b8;
+      font-size: 0.82rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      padding: 5px 14px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .wiki-source-tag span.file {
+      color: var(--accent-cyan);
+      font-weight: 600;
+    }
+
+    /* Navigation Controls Bar */
+    .controls-bar {
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .nav-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid var(--card-border);
+      color: #ffffff;
+      padding: 8px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav-btn:hover:not(:disabled) {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+    }
+
+    .nav-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .page-indicator {
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .key-tip {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    kbd {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 0.8rem;
+      color: #94a3b8;
+    }
+
+    @media (max-width: 768px) {
+      .deck-container {
+        min-height: auto;
+      }
+      .slide {
+        padding: 24px 20px 60px 20px;
+      }
+      .slide-title {
+        font-size: 1.5rem;
+      }
+      .cover-title {
+        font-size: 2rem;
+      }
+      .compare-grid {
+        grid-template-columns: 1fr;
+      }
+      .grid-4 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Progress Bar -->
+  <div class="progress-bar-container">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <!-- Slide Deck Container -->
+  <div class="deck-container">
+
+    <!-- ========================================== -->
+    <!-- SLIDE 1: 封面 -->
+    <!-- ========================================== -->
+    <section class="slide active" id="slide-1">
+      <div class="cover-layout">
+        <div class="cover-badge">量化回測與實盤避坑指南</div>
+        <h1 class="cover-title">量化交易回測的常見陷阱與過擬合防範</h1>
+        <p class="cover-subtitle">
+          從「紙上富貴」到「實盤生存」— 完全零基礎也能看懂的量化策略健檢與風險防禦教學
+        </p>
+        <div class="cover-pain-card">
+          ⚠️ 靈魂拷問：為什麼在歷史回測中每年暴賺 200% 的策略，真金白銀上線第一個月就崩盤？
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/index.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 2: 學習目標與核心迷思 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-2">
+      <div class="slide-header">
+        <div class="slide-tag">教學導讀</div>
+        <h2 class="slide-title">破除三大迷思：回測不是「造神機器」</h2>
+        <p class="slide-subtitle">回測真正的目的是「千方百計證明策略不可行」，而不是為了調出漂亮的資金曲線自欺欺人。</p>
+      </div>
+      <div class="content-body">
+        <div class="compare-grid">
+          <div class="compare-card wrong">
+            <div class="compare-head">初學者的 3 大致命迷思</div>
+            <ul>
+              <li><strong>迷思 1：回測賺錢 = 實盤賺錢</strong><br>以為歷史數據跑出的利潤在未來會原樣複製。</li>
+              <li><strong>迷思 2：夏普比率越高 = 風險越低</strong><br>以為波動小就代表安全，忽略肥尾黑天鵝瞬間爆倉。</li>
+              <li><strong>迷思 3：條件越複雜 = 策略越聰明</strong><br>疊加 10 個技術指標，自以為打造出無敵聖杯。</li>
+            </ul>
+          </div>
+          <div class="compare-card correct">
+            <div class="compare-head">本次簡報的 3 大核心收穫</div>
+            <ul>
+              <li><strong>學會抓出資料偷看</strong><br>徹底根除「前視偏誤」與「倖存者偏誤」的虛假獲利。</li>
+              <li><strong>建立科學防擬合體系</strong><br>學會用樣本外盲測（OOS）與步進分析（WFA）檢驗真相。</li>
+              <li><strong>考量真實交易殘酷耗損</strong><br>將手續費、滑價摩擦與水下回撤持續期納入決策標準。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="defense-card">
+          <strong>💡 核心觀念：</strong> 量化交易的勝負關鍵不是找出「最會賺錢」的模型，而是建構「在極端環境下殺不死」的策略。
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/index.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 3: 核心概念總覽 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-3">
+      <div class="slide-header">
+        <div class="slide-tag">全景地圖</div>
+        <h2 class="slide-title">量化回測崩盤的 4 大面向與 5 大致命陷阱</h2>
+        <p class="slide-subtitle">任何一個漏洞被忽視，都足以讓百萬資金在實盤中付之一炬。</p>
+      </div>
+      <div class="content-body">
+        <div class="grid-4">
+          <div class="grid-item">
+            <h3 style="color: var(--accent-rose);">01. 數據與資訊偏誤</h3>
+            <p><strong>前視偏誤 & 倖存者偏誤</strong><br>在時間軸上作弊或在選股池中只留贏家，讓回測在一開始就建立在虛假世界之上。</p>
+          </div>
+          <div class="grid-item">
+            <h3 style="color: var(--accent-amber);">02. 模型調校與驗證</h3>
+            <p><strong>過擬合與樣本外測試</strong><br>把歷史特定雜訊當作市場真理死記硬背，在參數孤島上自嗨，新考題直接交白卷。</p>
+          </div>
+          <div class="grid-item">
+            <h3 style="color: var(--accent-cyan);">03. 交易摩擦與執行</h3>
+            <p><strong>手續費與滑價耗損模型</strong><br>忽略買賣過路費與委託單打擊深度的滑價，把高頻交易的微小毛利全部送給券商。</p>
+          </div>
+          <div class="grid-item">
+            <h3 style="color: var(--accent-purple);">04. 風險計量與評估</h3>
+            <p><strong>最大回撤與夏普比率</strong><br>盲信常態分佈夏普指標，忽略漫長的水下煎熬（Underwater Duration）與極端黑天鵝。</p>
+          </div>
+        </div>
+        <div class="defense-card">
+          <strong>🔍 接下來的章節：</strong> 我們將逐一拆解這 5 大陷阱，用最直白的日常生活比喻與對照表，帶你徹底掌握防禦要領。
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/index.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 4: 陷阱 1 — 前視偏誤 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-4">
+      <div class="slide-header">
+        <div class="slide-tag">陷阱 01 · 數據偏誤</div>
+        <h2 class="slide-title">前視偏誤（Look-ahead Bias）：偷看答案的作弊考生</h2>
+        <p class="slide-subtitle">打破時間因果律，在做決策當下用了「未來才知道的資訊」。</p>
+      </div>
+      <div class="content-body">
+        <div class="def-box">
+          <strong>一句話白話：</strong> 做決策時引用了「當下時間點根本還沒發生或未公布的未來數據」，回測宛如未卜先知，實盤必死無疑。
+        </div>
+        <div class="card analogy-card">
+          <div class="analogy-title">📖 生活化比喻</div>
+          <div class="analogy-text">
+            就像學生在<strong>開考前就先拿到了印有參考答案的解答本</strong>，寫模擬考題題拿 100 分；但當走進沒有答案可抄的正式大考考場（實盤）時，成績立刻暴跌破產。
+          </div>
+        </div>
+        <div class="compare-grid">
+          <div class="compare-card wrong">
+            <div class="compare-head">回測常見錯誤實作</div>
+            <ul>
+              <li><strong>當天收盤成交：</strong>盤中用當日收盤價算指標，卻假設當天以收盤價甚至開盤買進。</li>
+              <li><strong>財報即時生效：</strong>以 9/30 當作 Q3 財報獲取日（實際上 11 月中旬才發布）。</li>
+              <li><strong>最低價幻想：</strong>假設委託單都能買在當天全日最低價（盤後才知）。</li>
+            </ul>
+          </div>
+          <div class="compare-card correct">
+            <div class="compare-head">標準修正與防範做法</div>
+            <ul>
+              <li><strong>嚴格信號位移：</strong>指標運算強制執行 <code>shift(1)</code>，次日開盤才撮合。</li>
+              <li><strong>Point-in-Time 資料庫：</strong>以財報「實際揭露公告日」作為可用時間。</li>
+              <li><strong>保守撮合假設：</strong>次根 K 棒開盤價加計滑價，或以 VWAP 成交。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/look_ahead_bias.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 5: 陷阱 2 — 倖存者偏誤 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-5">
+      <div class="slide-header">
+        <div class="slide-tag">陷阱 02 · 數據偏誤</div>
+        <h2 class="slide-title">倖存者偏誤（Survivorship Bias）：只看生還者的二戰轟炸機</h2>
+        <p class="slide-subtitle">把歷史上破產下市的公司當作空氣，打造出的偽常勝將軍。</p>
+      </div>
+      <div class="content-body">
+        <div class="def-box">
+          <strong>一句話白話：</strong> 選股時只挑選了「今天依然存活且活得很好的成功公司」，把破產倒閉的倒楣鬼全踢出歷史資料庫。
+        </div>
+        <div class="card analogy-card">
+          <div class="analogy-title">📖 生活化比喻</div>
+          <div class="analogy-text">
+            就像<strong>二戰戰機裝甲強化會議</strong>：軍方統計飛回基地的轟炸機彈孔（機翼最多），就判定「要加強機翼防護」；卻完全忽略了發動機與座艙中彈的飛機根本飛不回來，致命部位恰恰是倖存飛機上沒中彈的地方！
+          </div>
+        </div>
+        <div class="compare-grid">
+          <div class="compare-card wrong">
+            <div class="compare-head">回測常見錯誤實作</div>
+            <ul>
+              <li><strong>靜態股票池：</strong>拿「當前 S&P 500 / 台灣 50」名單回測 2000~2020 年。</li>
+              <li><strong>避開大雷區：</strong>完全避開了當年網路泡沫與金融海嘯倒閉的千百家企業。</li>
+              <li><strong>退市靜默不計：</strong>標的若遇退市直接忽略，未在淨值中認列歸零虧損。</li>
+            </ul>
+          </div>
+          <div class="compare-card correct">
+            <div class="compare-head">標準修正與防範做法</div>
+            <ul>
+              <li><strong>無偏誤歷史資料集：</strong>完整納入歷史所有退市股票（Delisted Equities）。</li>
+              <li><strong>動態歷史切片：</strong>在歷史任一時間點僅採用當時歷史生效的成分股名單。</li>
+              <li><strong>下市清算模擬：</strong>設定保守處置規則（如折價 50% 強制平倉或直接認列 0 元）。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/survivorship_bias.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 6: 陷阱 3 — 過擬合與樣本外測試 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-6">
+      <div class="slide-header">
+        <div class="slide-tag">陷阱 03 · 模型調校</div>
+        <h2 class="slide-title">過擬合（Overfitting）：把考古題答案順序死背下來的學生</h2>
+        <p class="slide-subtitle">過度學習歷史雜訊而非因果規律，在參數孤島上孤芳自賞。</p>
+      </div>
+      <div class="content-body">
+        <div class="def-box">
+          <strong>一句話白話：</strong> 策略死記硬背了過去歷史行情中的雜訊與巧合，舊題庫考滿分，遇到新市場考題徹底當掉。
+        </div>
+        <div class="card analogy-card">
+          <div class="analogy-title">📖 生活化比喻</div>
+          <div class="analogy-text">
+            就像一個學生<strong>把歷屆考卷的選項順序（例如「第 1 題選 C、第 2 題選 A」）死背硬記</strong>，模擬考時拿到滿分；但他根本不懂原理，只要大考稍微更動題目數字或順序，立刻考零分。
+          </div>
+        </div>
+        <div class="compare-grid">
+          <div class="compare-card wrong">
+            <div class="compare-head">回測常見錯誤實作</div>
+            <ul>
+              <li><strong>暴力網格尋優：</strong>跑 10,000 組參數只挑回測淨值最高、夏普 3.5 的孤島。</li>
+              <li><strong>資料集被看光：</strong>反覆調參直到樣本外（OOS）變好，使 OOS 淪為變相訓練集。</li>
+              <li><strong>隨機洗牌交叉驗證：</strong>誤用傳統隨機 K-Fold，造成相鄰時序持倉資訊滲漏。</li>
+            </ul>
+          </div>
+          <div class="compare-card correct">
+            <div class="compare-head">標準修正與防範做法</div>
+            <ul>
+              <li><strong>尋找參數平原：</strong>選擇參數上下浮動 10%~20% 仍穩健獲利的平原區間。</li>
+              <li><strong>嚴格封存盲測：</strong>留 20%~30% OOS 數據，直到模型凍結後才進行單次檢驗。</li>
+              <li><strong>步進與淨化驗證：</strong>採用滾動 Walk-Forward 與淨化禁運（Purged CV）。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/overfitting_and_oos.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 7: 陷阱 4 — 手續費與滑價耗損 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-7">
+      <div class="slide-header">
+        <div class="slide-tag">陷阱 04 · 交易執行</div>
+        <h2 class="slide-title">手續費與滑價耗損：跳蚤市場批發公仔的過路費</h2>
+        <p class="slide-subtitle">在紙上做發大財的白日夢，實盤每一筆進出都在被抽血剝皮。</p>
+      </div>
+      <div class="content-body">
+        <div class="def-box">
+          <strong>一句話白話：</strong> 真實世界每買賣一次都要被抽稅與付手續費，想買的價格別人早就搶光了；回測若當成 0 耗損就是幻想。
+        </div>
+        <div class="card analogy-card">
+          <div class="analogy-title">📖 生活化比喻</div>
+          <div class="analogy-text">
+            打算在<strong>二手跳蚤市場每隻公仔加價 5 元轉賣賺快錢</strong>，紙上計算每天買賣 1,000 次賺 5,000 元；但現實中每次進場要交攤位費、政府抽交易稅，最便宜的公仔只有 1 隻被搶光（滑價），每筆反而倒賠 10 元，越頻繁越快破產！
+          </div>
+        </div>
+        <div class="compare-grid">
+          <div class="compare-card wrong">
+            <div class="compare-head">回測常見錯誤實作</div>
+            <ul>
+              <li><strong>零滑價幻想：</strong>假設市價單能 100% 以理想價或收盤價精準撮合。</li>
+              <li><strong>忽視衝擊成本：</strong>單筆下單金額佔市場成交量 20% 仍假定瞬間全部成交。</li>
+              <li><strong>超高換手率狂刷：</strong>策略每筆平均毛利只有 5 個基點（bps），被手續費吃光。</li>
+            </ul>
+          </div>
+          <div class="compare-card correct">
+            <div class="compare-head">標準修正與防範做法</div>
+            <ul>
+              <li><strong>分層滑價模型：</strong>每筆成交至少扣除 1~2 個 Tick 作為基礎滑價。</li>
+              <li><strong>容量與衝擊限制：</strong>單筆下單限制在成交量 2%~5% 內，加入平方根衝擊模型。</li>
+              <li><strong>BETC 門檻檢驗：</strong>盈虧平衡交易成本（BETC）若小於 15~20 bps，拒絕上線。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/slippage_and_fees.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 8: 陷阱 5 — 最大回撤與夏普比率 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-8">
+      <div class="slide-header">
+        <div class="slide-tag">陷阱 05 · 績效評估</div>
+        <h2 class="slide-title">最大回撤與夏普比率：客運司機飆車與平穩駕駛</h2>
+        <p class="slide-subtitle">只看平均報酬不看極端尾部，在壓路機前撿硬幣隨時粉身碎骨。</p>
+      </div>
+      <div class="content-body">
+        <div class="def-box">
+          <strong>一句話白話：</strong> 夏普比率看的是「每一分風險換到多少報酬」，最大回撤（MDD）則是告訴你「最衰的時候會賠掉幾成身家、心臟夠不夠大顆」。
+        </div>
+        <div class="card analogy-card">
+          <div class="analogy-title">📖 生活化比喻</div>
+          <div class="analogy-text">
+            就像<strong>挑選長途客運司機</strong>：司機 A 平穩駕駛準時抵達（高夏普、低回撤）；司機 B 沿途狂飆闖紅燈差點翻落懸崖（超大 MDD），最後雖然也抵達終點，但你在半路上早就心臟病發被送醫急救。
+          </div>
+        </div>
+        <div class="compare-grid">
+          <div class="compare-card wrong">
+            <div class="compare-head">回測常見錯誤實作</div>
+            <ul>
+              <li><strong>唯夏普論：</strong>只要夏普 > 2.0 就開跑，忽略賣選擇權等策略的厚尾爆倉風險。</li>
+              <li><strong>只看單一幅度：</strong>歷史回撤 18% 看似不高，卻忽視了深陷水下 3 年無法解套。</li>
+              <li><strong>收益平滑假象：</strong>低流動性資產收益具自相關性，使年化夏普被虛增 30%~50%。</li>
+            </ul>
+          </div>
+          <div class="compare-card correct">
+            <div class="compare-head">標準修正與防範做法</div>
+            <ul>
+              <li><strong>多元風險指標：</strong>結合僅懲罰下行風險的索提諾比率（Sortino）與卡瑪比率（Calmar）。</li>
+              <li><strong>水下曲線分析：</strong>統計最長回撤持續天數（Underwater Duration）與平均修復期。</li>
+              <li><strong>蒙地卡羅重組：</strong>打亂交易順序模擬 1,000 次，評估 95% 信賴區間下的極端 MDD。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/mdd_and_sharpe.md</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 9: 實戰避坑檢查清單 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-9">
+      <div class="slide-header">
+        <div class="slide-tag">落地防禦手冊</div>
+        <h2 class="slide-title">實戰避坑檢查清單：策略上線前必做的 5 步檢核</h2>
+        <p class="slide-subtitle">上線真實資金前，逐一核對這 5 道防火牆，任何一項未通過都嚴禁實盤！</p>
+      </div>
+      <div class="content-body">
+        <div class="checklist-container">
+          <div class="check-item">
+            <div class="check-badge">檢核 1 · 數據因果</div>
+            <div>
+              <span class="check-title">時序位移與 Point-in-Time 檢驗</span>
+              <span class="check-desc">所有衍生指標是否落實 <code>shift(1)</code>？財報是否採用公布日而非季度結束日？</span>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-badge">檢核 2 · 資產純淨</div>
+            <div>
+              <span class="check-title">歷史成分動態切片與退市股納入</span>
+              <span class="check-desc">是否使用 Survivorship-Bias-Free 資料集？歷史倒閉退市股票是否有認列損失？</span>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-badge">檢核 3 · 泛化穩定</div>
+            <div>
+              <span class="check-title">樣本外盲測與參數平原驗證</span>
+              <span class="check-desc">是否保留 20%~30% OOS 數據進行單次盲測？參數周邊浮動 10% 是否依然穩健？</span>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-badge">檢核 4 · 摩擦耐受</div>
+            <div>
+              <span class="check-title">保守費率與滑價 1.5 倍壓力測試</span>
+              <span class="check-desc">每筆交易是否有加計 1~2 Tick 滑價？單筆平均毛利 BETC 是否顯著大於 15 bps？</span>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-badge">檢核 5 · 心理極限</div>
+            <div>
+              <span class="check-title">水下時間與蒙地卡羅重組分析</span>
+              <span class="check-desc">最長回撤持續天數是否小於資金耐受期？是否檢驗了肥尾極端損失（CVaR）？</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/5大條目防範檢核點整合</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- SLIDE 10: 總結與核心心法 -->
+    <!-- ========================================== -->
+    <section class="slide" id="slide-10">
+      <div class="slide-header">
+        <div class="slide-tag">總結心法</div>
+        <h2 class="slide-title">成為敬畏市場的理性量化交易者</h2>
+        <p class="slide-subtitle">在殘酷的金融博弈中，長久活下來是追求超額報酬的唯一前提。</p>
+      </div>
+      <div class="content-body">
+        <div class="grid-4" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="grid-item" style="border-top: 3px solid var(--accent-cyan);">
+            <h3 style="color: var(--accent-cyan);">1. 誠實面對數據</h3>
+            <p>寧可在回測中看到平庸卻真實的年化 15%，也不要在自欺欺人的虛假回測中狂歡 200%。真實是唯一的生存護城河。</p>
+          </div>
+          <div class="grid-item" style="border-top: 3px solid var(--accent-amber);">
+            <h3 style="color: var(--accent-amber);">2. 給市場留餘量</h3>
+            <p>永遠假設實盤的滑價更慘、手續費更貴、波動更極端。在回測中經過 1.5 倍摩擦壓力測試還能存活的策略，才配進實盤。</p>
+          </div>
+          <div class="grid-item" style="border-top: 3px solid var(--accent-rose);">
+            <h3 style="color: var(--accent-rose);">3. 敬畏尾部風險</h3>
+            <p>高夏普不等於無風險。永遠關注最大回撤、最長水下天數與非平穩黑天鵝。活得久比短期賺得多重要一萬倍。</p>
+          </div>
+        </div>
+        <div class="card" style="text-align: center; margin-top: 10px;">
+          <h4 style="color: #ffffff; margin-bottom: 6px;">📚 想要深入研究具體程式碼與數學推導？</h4>
+          <p style="color: var(--text-muted); font-size: 0.95rem;">
+            歡迎直接查閱本專案 <code style="color: var(--accent-cyan); background: #0f172a; padding: 2px 6px; border-radius: 4px;">wiki/</code> 目錄下的 5 篇完整技術專題條目，落實量化研究最高標準！
+          </p>
+        </div>
+      </div>
+      <div class="wiki-source-tag">
+        知識來源：<span class="file">wiki/index.md</span>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Navigation Controls Bar -->
+  <div class="controls-bar">
+    <button class="nav-btn" id="prevBtn" onclick="changeSlide(-1)">
+      &#8592; 上一頁
+    </button>
+    <div class="page-indicator" id="pageIndicator">01 / 10</div>
+    <button class="nav-btn" id="nextBtn" onclick="changeSlide(1)">
+      下一頁 &#8594;
+    </button>
+    <div class="key-tip">
+      提示：可使用鍵盤 <kbd>&#8592;</kbd> <kbd>&#8594;</kbd> 或 <kbd>Space</kbd> 切換
+    </div>
+  </div>
+
+  <script>
+    let currentSlide = 1;
+    const totalSlides = 10;
+
+    function updateSlide() {
+      // Toggle active slide
+      for (let i = 1; i <= totalSlides; i++) {
+        const slideEl = document.getElementById(`slide-${i}`);
+        if (slideEl) {
+          slideEl.classList.toggle('active', i === currentSlide);
+        }
+      }
+
+      // Update Page Indicator
+      const pageStr = String(currentSlide).padStart(2, '0');
+      const totalStr = String(totalSlides).padStart(2, '0');
+      document.getElementById('pageIndicator').innerText = `${pageStr} / ${totalStr}`;
+
+      // Update Progress Bar
+      const percentage = (currentSlide / totalSlides) * 100;
+      document.getElementById('progressBar').style.width = `${percentage}%`;
+
+      // Update Buttons State
+      document.getElementById('prevBtn').disabled = (currentSlide === 1);
+      document.getElementById('nextBtn').disabled = (currentSlide === totalSlides);
+    }
+
+    function changeSlide(direction) {
+      const target = currentSlide + direction;
+      if (target >= 1 && target <= totalSlides) {
+        currentSlide = target;
+        updateSlide();
+      }
+    }
+
+    // Keyboard Navigation
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        changeSlide(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        changeSlide(-1);
+      }
+    });
+
+    // Touch Swipe Support
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, false);
+
+    document.addEventListener('touchend', (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      if (touchEndX < touchStartX - 50) {
+        changeSlide(1); // Swipe left -> Next
+      }
+      if (touchEndX > touchStartX + 50) {
+        changeSlide(-1); // Swipe right -> Prev
+      }
+    }, false);
+
+    // Initial state
+    updateSlide();
+  </script>
+</body>
+</html>
